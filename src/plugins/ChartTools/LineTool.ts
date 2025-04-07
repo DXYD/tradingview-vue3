@@ -68,17 +68,35 @@ export class LineTool {
             this.previewPrimitive = null;
         }
 
-        const newPoint = this.createPoint(point);
-        this.startPoint = newPoint;
-        this.endPoint = { ...newPoint };
-        this.started = true;  // 标记已开始绘制
+        // 计算第一个点的精确坐标
+        const time = this.chart.timeScale().coordinateToTime(point.x);
+        const price = this.mainSeries.coordinateToPrice(point.y);
 
-        console.log('Starting line at:', newPoint);
+        if (time && price !== null) {
+            const startX = this.chart.timeScale().timeToCoordinate(time);
+            const startY = this.mainSeries.priceToCoordinate(price);
 
-        if (this.primitive) {
-            this.primitive.setPoints(newPoint, newPoint);
-            this.subscribe();
-            this.render(); // 强制渲染
+            if (startX !== null && startY !== null) {
+                const devicePixelRatio = window.devicePixelRatio;
+                const newPoint = {
+                    x: Math.round(startX * devicePixelRatio) / devicePixelRatio,
+                    y: Math.round(startY * devicePixelRatio) / devicePixelRatio,
+                    time,
+                    price,
+                    originalTime: time,
+                    originalPrice: price
+                };
+
+                this.startPoint = newPoint;
+                this.endPoint = { ...newPoint };
+                this.started = true;
+
+                if (this.primitive) {
+                    this.primitive.setPoints(newPoint, newPoint);
+                    this.subscribe();
+                    this.render();
+                }
+            }
         }
     }
 
@@ -90,19 +108,14 @@ export class LineTool {
     public move(point: Point, data?: CandleData): void {
         if (this.finished || !this.startPoint || !this.primitive) return;
 
-        const newPoint = this.createPoint(point);
-        
-        // 如果是吸附点，保持原始价格
-        if (point.type) {
-            newPoint.price = point.price;
-            newPoint.type = point.type;
+        const newEndPoint = this.createPoint(point);
+        this.endPoint = newEndPoint;
+
+        // 直接使用已经计算好的起点坐标
+        if (this.startPoint) {
+            this.primitive.setPoints(this.startPoint, newEndPoint);
+            this.render();
         }
-        
-        this.endPoint = newPoint;
-        
-        // 直接更新线段并渲染
-        this.primitive.setPoints(this.startPoint, newPoint);
-        this.render();
     }
 
     public stop(point: Point): void {
@@ -112,6 +125,7 @@ export class LineTool {
         this.endPoint = newPoint;
         this.finished = true;
         this.started = false;  // 重置开始状态
+        this.options.finished = true;  // 设置选项中的完成状态，确保渲染器知道线段已完成
 
         // 保存最终线段位置并渲染
         this.primitive.setPoints(this.startPoint, newPoint);
@@ -222,12 +236,12 @@ export class LineTool {
     }
 
     private handleScaleChange = () => {
-        if (!this.startPoint?.time || !this.startPoint.price || 
+        if (!this.startPoint?.originalTime || !this.startPoint.originalPrice || 
             !this.endPoint?.time || !this.endPoint.price) return;
 
-        // 使用时间和价格重新计算坐标
-        const startX = this.chart.timeScale().timeToCoordinate(this.startPoint.time);
-        const startY = this.mainSeries.priceToCoordinate(this.startPoint.price);
+        // 使用原始时间和价格计算起点坐标
+        const startX = this.chart.timeScale().timeToCoordinate(this.startPoint.originalTime);
+        const startY = this.mainSeries.priceToCoordinate(this.startPoint.originalPrice);
         const endX = this.chart.timeScale().timeToCoordinate(this.endPoint.time);
         const endY = this.mainSeries.priceToCoordinate(this.endPoint.price);
 
@@ -235,11 +249,12 @@ export class LineTool {
 
         const devicePixelRatio = window.devicePixelRatio;
         
-        // 更新坐标
         const newStartPoint = {
             ...this.startPoint,
             x: Math.round(startX * devicePixelRatio) / devicePixelRatio,
-            y: Math.round(startY * devicePixelRatio) / devicePixelRatio
+            y: Math.round(startY * devicePixelRatio) / devicePixelRatio,
+            time: this.startPoint.originalTime,
+            price: this.startPoint.originalPrice
         };
 
         const newEndPoint = {
@@ -248,7 +263,6 @@ export class LineTool {
             y: Math.round(endY * devicePixelRatio) / devicePixelRatio
         };
 
-        // 使用完整的点信息更新位置
         this.updatePosition({
             start: newStartPoint,
             end: newEndPoint
@@ -263,10 +277,11 @@ export class LineTool {
 
         // 更新最终位置并标记完成
         this.finished = true;
+        this.options.finished = true;  // 设置渲染选项中的完成状态
+        
         console.log('Line finished:', { start: this.startPoint, end: this.endPoint });
         
-        // 确保最终位置正确
-        this.render();  // 使用 render 替代 updateLine
+        this.render();
     }
 
     public remove(): void {

@@ -12,28 +12,30 @@ export class LineRenderer implements IPrimitivePaneRenderer {
 
     public draw(target: CanvasRenderingTarget2D): void {
         const devicePixelRatio = window.devicePixelRatio;
-        
         target.useBitmapCoordinateSpace(({ context: ctx }) => {
             ctx.save();
             
-            // 使用设备像素比进行坐标转换
             const startX = Math.round(this.startPoint.x * devicePixelRatio);
             const startY = Math.round(this.startPoint.y * devicePixelRatio);
             const endX = Math.round(this.endPoint.x * devicePixelRatio);
             const endY = Math.round(this.endPoint.y * devicePixelRatio);
 
-            // 绘制线段
-            ctx.beginPath();
+            // 设置线条样式
             ctx.strokeStyle = this.options.color || '#2196F3';
             ctx.lineWidth = (this.options.lineWidth || 2) * devicePixelRatio;
+            
+            // 绘制线段
+            ctx.beginPath();
             ctx.moveTo(startX, startY);
             ctx.lineTo(endX, endY);
             ctx.stroke();
-
-            // 绘制端点
-            this.drawPoint(ctx, startX, startY, devicePixelRatio);
-            this.drawPoint(ctx, endX, endY, devicePixelRatio);
-
+            
+            // 只在线段未完成时绘制端点
+            if (!this.options.finished) {
+                this.drawPoint(ctx, startX, startY, devicePixelRatio);
+                this.drawPoint(ctx, endX, endY, devicePixelRatio);
+            }
+            
             ctx.restore();
         });
     }

@@ -427,6 +427,12 @@ onMounted(() => {
         layout: {
             textColor: '#333',
         },
+        timeScale: {
+            // 添加最小间距设置，限制最小缩放宽度
+            minBarSpacing: 5, // 设置蜡烛图/直线最小间距，单位是像素
+            rightOffset: 5,    // 右侧留白数量
+            barSpacing: 20,    // 默认间距
+        },
         crosshair: {
             mode: 0,
             vertLine: {

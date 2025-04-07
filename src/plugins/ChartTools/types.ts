@@ -18,11 +18,34 @@ export interface Point {
     originalPrice?: number | null;  // 添加原始价格存储
 }
 
-export interface LineToolOptions {
-    color?: string;     // 线条颜色
-    lineStyle?: 'solid' | 'dashed' | 'dotted';     // 线条样式
-    lineWidth?: number;     // 线宽
-    snap?: boolean;     // 是否启用磁吸点
+// 工具基础接口
+export interface BaseToolOptions {
+    color: string;
+    lineWidth: number;
+    lineStyle: 'solid' | 'dashed' | 'dotted';
+    snap?: boolean;
+    finished?: boolean;
+}
+
+// 线段工具特有配置
+export interface LineToolOptions extends BaseToolOptions {
+    // 线段特有的属性可以在这里添加
+}
+
+// 工具类型定义
+export type ToolType = 'line' | 'rectangle' | 'select';
+
+// 通用工具信息接口
+export interface ToolInfo {
+    type: ToolType;
+    id: number;
+    options: BaseToolOptions;
+}
+
+// 线段工具特定信息接口
+export interface LineToolInfo extends ToolInfo {
+    type: 'line';
+    options: LineToolOptions;
 }
 
 export interface IRenderer {

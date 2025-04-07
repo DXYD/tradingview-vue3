@@ -18,6 +18,12 @@
             <i class="tool-icon">⌖</i>
             <span class="shortcut">S</span>
         </div>
+        <div class="tool-button" 
+             :class="{ active: currentTool === 'select' }"
+             @click="selectTool('select')">
+            <i class="tool-icon">👆</i>
+            <span class="shortcut">V</span>
+        </div>
     </div>
 </template>
 
@@ -52,6 +58,9 @@ const handleKeyPress = (e) => {
             break;
         case 's':  // 切换吸附
             toggleSnap();
+            break;
+        case 'v':  // 选择工具
+            selectTool('select');
             break;
         case 'escape':  // ESC 键取消当前工具
             if (currentTool.value) {
