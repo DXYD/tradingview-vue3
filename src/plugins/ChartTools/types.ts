@@ -30,10 +30,18 @@ export interface BaseToolOptions {
 // 线段工具特有配置
 export interface LineToolOptions extends BaseToolOptions {
     // 线段特有的属性可以在这里添加
+    leftExtend?: boolean;  // 左延长线
+    rightExtend?: boolean; // 右延长线
+}
+
+export interface RectToolOptions extends BaseToolOptions {
+    fillColor?: string;
+    fillOpacity?: number;
+    borderStyle?: 'solid' | 'dashed' | 'dotted';
 }
 
 // 工具类型定义
-export type ToolType = 'line' | 'rectangle' | 'select';
+export type ToolType = 'line' | 'rectangle' | 'select' | 'eraser';
 
 // 通用工具信息接口
 export interface ToolInfo {
@@ -61,4 +69,15 @@ export interface DrawingPoint {
 export interface DrawingState {
     startPoint: DrawingPoint | null;
     endPoint: DrawingPoint | null;
+}
+
+// 选中工具状态接口
+export interface SelectedTool {
+    type: ToolType;
+    index: number;
+    tool: any; // Line or Rect tool .etc
+    position: {
+        x: number;
+        y: number;
+    };
 }

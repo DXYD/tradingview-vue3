@@ -1,11 +1,10 @@
-<script setup>
+<script setup lang="ts">
 import {
     ref,
     onMounted,
     onUnmounted,
     watch,
     defineExpose,
-    defineProps,
 } from 'vue';
 import {
     createChart,
@@ -18,6 +17,13 @@ import {
 } from 'lightweight-charts';
 import ToolBar from '../plugins/ChartTools/ToolBar.vue';
 import { LineManager } from '../plugins/ChartTools/LineManager';
+import LineToolSettings from '../plugins/ChartTools/Components/ToolSettings/LineToolSettings.vue';
+import RectToolSettings from '../plugins/ChartTools/Components/ToolSettings/RectToolSettings.vue';
+import { RectManager } from '../plugins/ChartTools/RectManager';
+import type { SelectedTool } from '../plugins/ChartTools/types';
+import { ToolStyleManager } from '../plugins/ChartTools/config/toolStyles';
+
+const styleManager = ToolStyleManager.getInstance();
 
 const props = defineProps({
     type: {
@@ -25,8 +31,15 @@ const props = defineProps({
         default: 'line',
     },
     data: {
-        type: Array,
-        required: true,
+        type: Array<{
+            time: number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+            volume: number;
+        }>,
+        required: true
     },
     autosize: {
         default: true,
@@ -79,10 +92,14 @@ const fitContent = () => {
 // 使用 ref 来存储 lineManager
 const lineManagerRef = ref(null);
 
+// 添加矩形管理器引用
+const rectManagerRef = ref(null);
+
 const getChart = () => {
     return {
         chart,
-        lineManager: lineManagerRef.value  // 使用 ref 中的值
+        lineManager: lineManagerRef.value,  // 使用 ref 中的值
+        rectManager: rectManagerRef.value
     };
 };
 
@@ -192,6 +209,9 @@ const addSeriesAndData = props => {
     // 创建 LineManager
     lineManagerRef.value = new LineManager(chart, series);
 
+    // 创建 RectManager
+    rectManagerRef.value = new RectManager(chart, series);
+
     // 修改鼠标移动事件处理
     chart.subscribeCrosshairMove(param => {
         const validCrosshairPoint = !(
@@ -229,17 +249,26 @@ const addSeriesAndData = props => {
 // 使用 LineManager 替代原有的管理方式
 let currentTool = null;
 
+// 修改工具切换函数
 const handleToolChange = (tool) => {
+    console.log('Tool changed to:', tool);
     if (tool === 'line') {
         if (!lineManagerRef.value) {
             lineManagerRef.value = new LineManager(chart, series);
         }
-        currentTool = lineManagerRef.value.startNewLine({
-            color: '#2196F3',
-            lineStyle: "solid",
-            lineWidth: 1,
-            snap: isSnapEnabled.value  // 使用当前的吸附状态
-        });
+        // 使用最新的默认样式
+        const defaultStyle = styleManager.getDefaultStyle('line');
+        currentTool = lineManagerRef.value.startNewLine(defaultStyle);
+    } else if (tool === 'rectangle') {
+        if (!rectManagerRef.value) {
+            rectManagerRef.value = new RectManager(chart, series);
+        }
+        // 使用最新的默认样式
+        const defaultStyle = styleManager.getDefaultStyle('rect');
+        currentTool = rectManagerRef.value.startNewRect(defaultStyle);
+    } else if (tool === 'select') {
+        currentTool = 'select';
+        selectedTool.value = null; // 清空当前选中的工具
     } else {
         // 清理当前的绘制状态
         if (lineManagerRef.value && currentTool) {
@@ -247,6 +276,26 @@ const handleToolChange = (tool) => {
                 currentTool.remove();
             }
             currentTool = null;
+        }
+    }
+};
+
+// 修改样式变更处理函数
+const handleStyleChange = ({ tool, style, isDefault }) => {
+    console.log('Style change:', { tool, style, isDefault }); 
+    
+    if (isDefault) {
+        // 更新默认样式
+        styleManager.updateDefaultStyle(tool, style);
+        
+        // 如果当前正在使用该工具，使用新的默认样式重新创建
+        if (currentTool && tool === currentTool.value) {
+            handleToolChange(tool);
+        }
+    } else {
+        // 更新当前选中工具的样式
+        if (selectedTool.value && selectedTool.value.tool) {
+            selectedTool.value.tool.updateOptions(style);
         }
     }
 };
@@ -313,7 +362,56 @@ const snapPoint = (point) => {
 };
 
 const handleMouseDown = (e) => {
-    if (!chart || !series || !currentTool) return;
+    if (!chart || !series) return;
+    
+    // 如果点击的是设置面板内部，不处理
+    if (e.target.closest('.tool-settings')) {
+        return;
+    }
+    
+    const rect = chartContainer.value.getBoundingClientRect();
+    let point = createPoint(e, rect);
+    
+    // 选择工具模式下的处理
+    if (currentTool === 'select') {
+        // 检查是否点击到矩形
+        const rectIndex = rectManagerRef.value?.getRectAtPosition(point.x, point.y, 15);
+        if (rectIndex !== -1) {
+            const rects = rectManagerRef.value?.getRects();
+            const clickedRect = rects[rectIndex];
+            selectedTool.value = {
+                type: 'rect', // 修改为 'rect'
+                index: rectIndex,
+                tool: clickedRect, // 直接使用 clickedRect
+                position: {
+                    x: e.clientX,
+                    y: e.clientY - 100
+                }
+            };
+            return;
+        }
+
+        // 检查是否点击到线段
+        const lineIndex = lineManagerRef.value?.getLineAtPosition(point.x, point.y, 15);
+        if (lineIndex !== -1) {
+            const lines = lineManagerRef.value?.getLines();
+            const clickedLine = lines[lineIndex];
+            selectedTool.value = {
+                type: 'line',
+                index: lineIndex,
+                tool: clickedLine, // 直接使用 clickedLine
+                position: {
+                    x: e.clientX,
+                    y: e.clientY - 100
+                }
+            };
+        } else {
+            if (!e.target.closest('.tool-settings')) {
+                selectedTool.value = null;
+            }
+        }
+        return;
+    }
     
     lastMouseX.value = e.clientX;
     
@@ -322,9 +420,6 @@ const handleMouseDown = (e) => {
         return;
     }
 
-    const rect = chartContainer.value.getBoundingClientRect();
-    let point = createPoint(e, rect);
-    
     // 在用户点击时应用吸附
     point = snapPoint(point);
 
@@ -353,6 +448,24 @@ const handleMouseMove = (e) => {
     
     const rect = chartContainer.value.getBoundingClientRect();
     let point = createPoint(e, rect);
+
+    // 检查是否在线段或矩形附近并更改鼠标样式
+    if (currentTool === 'select') {
+        // 首先检查是否在矩形区域内
+        const rectIndex = rectManagerRef.value?.getRectAtPosition(point.x, point.y, 15);
+        if (rectIndex !== -1) {
+            chartContainer.value.style.cursor = 'pointer';
+            return;
+        }
+        
+        // 然后检查是否在线段附近
+        const lineIndex = lineManagerRef.value?.getLineAtPosition(point.x, point.y, 15);
+        if (lineIndex !== -1) {
+            chartContainer.value.style.cursor = 'pointer';
+        } else {
+            chartContainer.value.style.cursor = 'default';
+        }
+    }
 
     // 即使在未开始绘制前，也应用吸附逻辑
     if (currentTool && typeof currentTool !== 'string' && currentTool.options.snap) {
@@ -418,6 +531,67 @@ const handleMouseUp = (e) => {
 
 const handleMouseLeave = () => {
     mousePosition.value.visible = false;
+};
+
+// 替换原有的 selectedLine 和 selectedRect
+const selectedTool = ref<SelectedTool | null>(null);
+
+// 添加工具操作映射
+const toolOperations = {
+    'line': {
+        getManager: () => lineManagerRef.value,
+        update: (manager, index, settings) => manager?.updateLine(index, settings),
+        remove: (manager, index) => manager?.removeLine(index)
+    },
+    'rect': {
+        getManager: () => rectManagerRef.value,
+        update: (manager, index, settings) => manager?.updateRect(index, settings),
+        remove: (manager, index) => manager?.removeRect(index)
+    }
+} as const;
+
+// 统一的设置更新处理函数
+const handleToolSettingsUpdate = (newSettings) => {
+    if (!selectedTool.value) return;
+
+    console.log('Updating tool settings:', newSettings); // 添加日志
+    
+    const operations = toolOperations[selectedTool.value.type];
+    if (!operations) return;
+
+    const manager = operations.getManager();
+    if (!manager) return;
+
+    // 先更新工具实例
+    if (selectedTool.value.tool?.updateOptions) {
+        selectedTool.value.tool.updateOptions(newSettings);
+    }
+
+    // 强制重新渲染
+    operations.update(manager, selectedTool.value.index, newSettings);
+    
+    // 更新选中工具的选项
+    selectedTool.value = {
+        ...selectedTool.value,
+        tool: {
+            ...selectedTool.value.tool,
+            options: newSettings
+        }
+    };
+};
+
+// 统一的删除处理函数
+const handleToolDelete = () => {
+    if (!selectedTool.value) return;
+
+    const operations = toolOperations[selectedTool.value.type];
+    if (!operations) return;
+
+    const manager = operations.getManager();
+    if (!manager) return;
+
+    operations.remove(manager, selectedTool.value.index);
+    selectedTool.value = null;
 };
 
 onMounted(() => {
@@ -497,6 +671,10 @@ onUnmounted(() => {
     if (lineManagerRef.value) {
         lineManagerRef.value.removeAllLines();
         lineManagerRef.value = null;
+    }
+    if (rectManagerRef.value) {
+        rectManagerRef.value.removeAllRects();
+        rectManagerRef.value = null;
     }
     window.removeEventListener('resize', resizeHandler);
     window.removeEventListener('keydown', handleKeyDown);
@@ -590,6 +768,7 @@ watch(
             class="chart-toolbar"
             @tool-change="handleToolChange"
             @snap-change="handleSnapChange"
+            @style-change="handleStyleChange"
         />
         <!-- 数据信息面板 -->
         <div v-if="currentData.visible" 
@@ -633,6 +812,22 @@ watch(
                 <span>Time: {{ mousePosition.time }}</span>
             </div>
         </div>
+        <!-- 添加设置面板 -->
+        <LineToolSettings
+            v-if="selectedTool?.type === 'line'"
+            :options="selectedTool.tool?.options || {}"
+            :position="selectedTool.position"
+            @update="handleToolSettingsUpdate"
+            @delete="handleToolDelete"
+        />
+        <!-- 添加矩形工具设置面板 -->
+        <RectToolSettings
+            v-if="selectedTool?.type === 'rect'"
+            :options="selectedTool.tool?.options || {}"
+            :position="selectedTool.position"
+            @update="handleToolSettingsUpdate"
+            @delete="handleToolDelete"
+        />
     </div>
 </template>
 

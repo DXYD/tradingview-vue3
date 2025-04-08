@@ -1,6 +1,7 @@
 import { IChartApi } from 'lightweight-charts';
 import { LineTool } from './LineTool';
-import { Point, LineToolOptions } from './types';
+import { Point, LineToolOptions, RectToolOptions} from './types';
+import { RectTool } from './RectTool';
 
 export class LineManager {
     private lines: Array<{
@@ -178,11 +179,15 @@ export class LineManager {
         chart.timeScale().subscribeVisibleTimeRangeChange(() => {
             // 立即同步更新线段位置
             this.immediateUpdateLines();
+            // 触发线段变化事件，以便更新UI状态
+            this.onLinesChanged?.();
         });
 
         chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
             // 立即同步更新线段位置
             this.immediateUpdateLines();
+            // 触发线段变化事件，以便更新UI状态
+            this.onLinesChanged?.();
         });
         
         // 其他事件使用普通动画更新
@@ -339,15 +344,87 @@ export class LineManager {
         }
     }
 
-    public getLineAtPosition(x: number, y: number, tolerance: number = 5): number {
-        // 查找距离点击位置最近的线段
-        for (let i = 0; i < this.lines.length; i++) {
-            const line = this.lines[i];
-            if (this.isPointNearLine(x, y, line.startPoint, line.endPoint, tolerance)) {
-                return i;
+    public getLineAtPosition(x: number, y: number, tolerance: number = 15): number {
+        // 每次检测前更新线段位置
+        this.updateCurrentPositions();
+
+        const devicePixelRatio = window.devicePixelRatio;
+        const adjustedTolerance = tolerance * devicePixelRatio;
+
+        // 遍历所有线段，找到最近的一条
+        let nearestIndex = -1;
+        let minDistance = Infinity;
+
+        this.lines.forEach((line, index) => {
+            const { startPoint, endPoint } = line;
+            // 使用当前的坐标系计算距离
+            const currentStartX = this.chart.timeScale().timeToCoordinate(startPoint.time!);
+            const currentStartY = this.mainSeries.priceToCoordinate(startPoint.price!);
+            const currentEndX = this.chart.timeScale().timeToCoordinate(endPoint.time!);
+            const currentEndY = this.mainSeries.priceToCoordinate(endPoint.price!);
+
+            if (currentStartX === null || currentStartY === null || 
+                currentEndX === null || currentEndY === null) return;
+
+            const distance = this.getDistanceToLine(
+                x * devicePixelRatio,
+                y * devicePixelRatio,
+                currentStartX * devicePixelRatio,
+                currentStartY * devicePixelRatio,
+                currentEndX * devicePixelRatio,
+                currentEndY * devicePixelRatio
+            );
+
+            if (distance < adjustedTolerance && distance < minDistance) {
+                minDistance = distance;
+                nearestIndex = index;
             }
+        });
+
+        return nearestIndex;
+    }
+
+    private updateCurrentPositions(): void {
+        this.lines.forEach(line => {
+            const { startPoint, endPoint } = line;
+            const startX = this.chart.timeScale().timeToCoordinate(startPoint.time!);
+            const startY = this.mainSeries.priceToCoordinate(startPoint.price!);
+            const endX = this.chart.timeScale().timeToCoordinate(endPoint.time!);
+            const endY = this.mainSeries.priceToCoordinate(endPoint.price!);
+
+            if (startX !== null && startY !== null && endX !== null && endY !== null) {
+                line.tool.updatePosition({
+                    start: { ...startPoint, x: startX, y: startY },
+                    end: { ...endPoint, x: endX, y: endY }
+                });
+            }
+        });
+    }
+
+    private getDistanceToLine(x: number, y: number, x1: number, y1: number, x2: number, y2: number): number {
+        const A = x - x1;
+        const B = y - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+
+        const dot = A * C + B * D;
+        const len_sq = C * C + D * D;
+
+        // 处理退化情况（起点和终点重合）
+        if (len_sq === 0) {
+            return Math.sqrt(A * A + B * B);
         }
-        return -1;
+
+        let param = dot / len_sq;
+        param = Math.max(0, Math.min(1, param));
+
+        const xx = x1 + param * C;
+        const yy = y1 + param * D;
+
+        const dx = x - xx;
+        const dy = y - yy;
+
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
     private isPointNearLine(x: number, y: number, start: Point, end: Point, tolerance: number): boolean {
@@ -358,25 +435,44 @@ export class LineManager {
 
         const dot = A * C + B * D;
         const len_sq = C * C + D * D;
-        const param = dot / len_sq;
-
-        let xx, yy;
-
-        if (param < 0) {
-            xx = start.x;
-            yy = start.y;
-        } else if (param > 1) {
-            xx = end.x;
-            yy = end.y;
-        } else {
-            xx = start.x + param * C;
-            yy = start.y + param * D;
+        
+        // 如果线段长度为0，判断点到端点的距离
+        if (len_sq === 0) {
+            const dist = Math.sqrt(A * A + B * B);
+            return dist < tolerance;
         }
+
+        let param = dot / len_sq;
+        param = Math.max(0, Math.min(1, param));  // 限制在线段范围内
+
+        const xx = start.x + param * C;
+        const yy = start.y + param * D;
 
         const dx = x - xx;
         const dy = y - yy;
         const distance = Math.sqrt(dx * dx + dy * dy);
-
+        
+        // 增加调试日志
+        console.log('Distance to line:', distance, 'tolerance:', tolerance);
+        
         return distance < tolerance;
+    }
+    
+    public updateLine(index: number, newOptions: LineToolOptions): void {
+        if (index >= 0 && index < this.lines.length) {
+            const line = this.lines[index];
+            if (line && line.tool) {
+                // 直接访问 tool 实例并调用其 updateOptions 方法
+                line.tool.updateOptions(newOptions);
+                // 获取当前点位并重新渲染
+                const points = line.tool.getPoints();
+                if (points.start && points.end) {
+                    line.tool.redraw({
+                        start: points.start,
+                        end: points.end
+                    });
+                }
+            }
+        }
     }
 }

@@ -395,6 +395,30 @@ export class LineTool {
             this.previewPrimitive.setPoints(newPoint, newPoint);
         }
     }
+
+    public getOptions(): LineToolOptions {
+        return { ...this.options };
+    }
+
+    public updateOptions(newOptions: LineToolOptions): void {
+        console.log('Updating options in LineTool:', newOptions);
+        // 保存新选项
+        this.options = { ...this.options, ...newOptions };
+        
+        // 更新原语的选项
+        if (this.primitive) {
+            console.log('Updating primitive options');
+            this.primitive.updateOptions(this.options);
+            
+            // 强制重新渲染
+            requestAnimationFrame(() => {
+                if (this.startPoint && this.endPoint) {
+                    this.primitive?.setPoints(this.startPoint, this.endPoint);
+                    console.log('Forced redraw after options update');
+                }
+            });
+        }
+    }
 }
 
 // 实现图表原语
@@ -412,7 +436,16 @@ class LinePrimitive implements ISeriesPrimitive {
     }
 
     public updateAllViews(): void {
-        // 空实现，因为视图会在setPoints时更新
+        console.log('Updating all views');
+        if (this.linePaneView && this.startPoint && this.endPoint) {
+            this.linePaneView.setPoints(this.startPoint, this.endPoint);
+            // 强制触发重绘
+            requestAnimationFrame(() => {
+                if (this.linePaneView) {
+                    this.linePaneView.setPoints(this.startPoint!, this.endPoint!);
+                }
+            });
+        }
     }
 
     public paneViews(): readonly IPrimitivePaneView[] {
@@ -444,6 +477,15 @@ class LinePrimitive implements ISeriesPrimitive {
             this.linePaneView.setPoints(emptyPoint, emptyPoint);
         }
     }
+
+    public updateOptions(options: LineToolOptions): void {
+        console.log('Updating options in LinePrimitive:', options);
+        if (this.linePaneView) {
+            this.linePaneView.updateOptions(options);
+            // 强制更新所有视图
+            this.updateAllViews();
+        }
+    }
 }
 
 // LineView class handles the actual rendering
@@ -453,7 +495,7 @@ class LinePaneView implements IPrimitivePaneView {
 
     constructor(
         private readonly chart: IChartApi,
-        private readonly options: LineToolOptions
+        private options: LineToolOptions
     ) {}
 
     zOrder(): 'top' {
@@ -472,5 +514,9 @@ class LinePaneView implements IPrimitivePaneView {
     setPoints(start: Point, end: Point): void {
         this.startPoint = start;
         this.endPoint = end;
+    }
+
+    public updateOptions(options: LineToolOptions): void {
+        this.options = options;
     }
 }

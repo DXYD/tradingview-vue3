@@ -1,4 +1,15 @@
 {
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "allowJs": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue"
+  ],
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },
